@@ -51,7 +51,6 @@ export default function ScanNotaScreen({ route, navigation }) {
     }
     abrirNota(url);
   }
-  }
 
   if (!permission) {
     return (
