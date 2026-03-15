@@ -5,10 +5,15 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { COLORS, SPACING, FONT_SIZE } from '../utils/theme';
+import { parseProdutosTexto } from '../utils/notaFiscal';
 
 /**
  * JavaScript injetado na WebView para extrair produtos da página NFC-e.
@@ -170,13 +175,26 @@ const INJECTION_JS = `
       data: result
     }));
   } else {
-    // Informar que a página carregou mas sem produtos ainda
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'PAGE_LOADED',
-      hasProducts: false,
-      title: document.title || '',
-      textPreview: (document.body.innerText || '').substring(0, 200)
-    }));
+    // Checar se é página de bloqueio de IP (SEFAZ-RJ)
+    var bodyText = document.body.innerText || '';
+    var isBlocked = /bloqueio|bloqueia|IP.*listado|operadoras.*telecomunica|crimes?\s*cibern|sigilo\s*fiscal|meuip\.com/i.test(bodyText);
+    var isCaptcha = /captcha|recaptcha|challenge|verificação humana/i.test(bodyText);
+    var isManutencao = /manutenção|manutencao|fora do ar|indisponível|indisponivel|temporarily unavailable/i.test(bodyText);
+
+    if (isBlocked || isCaptcha || isManutencao) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'BLOCKED',
+        reason: isBlocked ? 'IP_BLOCKED' : isCaptcha ? 'CAPTCHA' : 'MANUTENCAO',
+        textPreview: bodyText.substring(0, 500)
+      }));
+    } else {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'PAGE_LOADED',
+        hasProducts: false,
+        title: document.title || '',
+        textPreview: bodyText.substring(0, 200)
+      }));
+    }
   }
 })();
 true;
@@ -184,8 +202,9 @@ true;
 
 export default function WebViewNotaScreen({ route, navigation }) {
   const { compraId, url } = route.params;
-  const [status, setStatus] = useState('loading'); // loading | ready | extracting | error
+  const [status, setStatus] = useState('loading'); // loading | ready | extracting | blocked | error | paste
   const [statusMsg, setStatusMsg] = useState('Carregando página do SEFAZ...');
+  const [textoColado, setTextoColado] = useState('');
   const webviewRef = useRef(null);
 
   function parseNumero(texto) {
@@ -214,10 +233,34 @@ export default function WebViewNotaScreen({ route, navigation }) {
     }
   }
 
+  function processarTextoColado() {
+    const texto = textoColado.trim();
+    if (!texto) return;
+    const produtos = parseProdutosTexto(texto);
+    if (produtos.length > 0) {
+      navigation.replace('MatchProdutos', {
+        compraId,
+        produtosNota: produtos,
+        totalNota: 0,
+      });
+    } else {
+      setStatusMsg('Não consegui extrair produtos do texto colado. Tente copiar todo o conteúdo da nota.');
+    }
+  }
+
   function onMessage(event) {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type === 'PRODUTOS' && msg.data) {
+      if (msg.type === 'BLOCKED') {
+        setStatus('blocked');
+        if (msg.reason === 'IP_BLOCKED') {
+          setStatusMsg('SEFAZ bloqueou o acesso — seu IP de operadora está numa lista de bloqueio.');
+        } else if (msg.reason === 'CAPTCHA') {
+          setStatusMsg('A página exige verificação CAPTCHA.');
+        } else {
+          setStatusMsg('Página da SEFAZ em manutenção.');
+        }
+      } else if (msg.type === 'PRODUTOS' && msg.data) {
         if (msg.data.produtos && msg.data.produtos.length > 0) {
           setStatus('extracting');
           setStatusMsg(`${msg.data.produtos.length} produtos encontrados!`);
@@ -244,6 +287,124 @@ export default function WebViewNotaScreen({ route, navigation }) {
     `);
   }
 
+  // === TELA DE BLOQUEIO ===
+  if (status === 'blocked') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.blockedContainer}>
+        <Text style={styles.blockedIcon}>🚫</Text>
+        <Text style={styles.blockedTitle}>Acesso Bloqueado pela SEFAZ</Text>
+        <Text style={styles.blockedText}>{statusMsg}</Text>
+
+        <View style={styles.tipBox}>
+          <Text style={styles.tipTitle}>💡 O que fazer?</Text>
+          <Text style={styles.tipText}>
+            1. <Text style={{ fontWeight: '700' }}>Conecte no WiFi</Text> — o bloqueio geralmente é apenas para IPs de operadoras móveis (4G/5G)
+          </Text>
+          <Text style={styles.tipText}>
+            2. <Text style={{ fontWeight: '700' }}>Abra no navegador do celular</Text> — após conectar no WiFi, abra o link e copie o texto
+          </Text>
+          <Text style={styles.tipText}>
+            3. <Text style={{ fontWeight: '700' }}>Abra no computador</Text> — acesse o link no PC (geralmente não é bloqueado) e copie o conteúdo
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => Linking.openURL(url)}
+        >
+          <Text style={styles.actionBtnText}>🌐  Abrir no Navegador</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: '#1565C0' }]}
+          onPress={() => { setStatus('paste'); setStatusMsg(''); }}
+        >
+          <Text style={styles.actionBtnText}>📋  Colar Texto da Nota</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: COLORS.textSecondary }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.actionBtnText}>← Voltar</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
+  // === TELA DE COLAR TEXTO ===
+  if (status === 'paste') {
+    return (
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerStyle={styles.pasteContainer}>
+          <Text style={styles.pasteTitle}>Colar Texto da Nota Fiscal</Text>
+          <Text style={styles.pasteSubtitle}>
+            Abra a nota fiscal no navegador (WiFi ou PC), selecione todo o texto da página (Ctrl+A) e cole aqui:
+          </Text>
+          <TextInput
+            style={styles.pasteInput}
+            placeholder="Cole aqui o texto copiado da nota fiscal..."
+            value={textoColado}
+            onChangeText={setTextoColado}
+            multiline
+            textAlignVertical="top"
+          />
+          <TouchableOpacity
+            style={[styles.actionBtn, { opacity: textoColado.trim() ? 1 : 0.5 }]}
+            onPress={processarTextoColado}
+            disabled={!textoColado.trim()}
+          >
+            <Text style={styles.actionBtnText}>🔍  Extrair Produtos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: COLORS.textSecondary }]}
+            onPress={() => setStatus('blocked')}
+          >
+            <Text style={styles.actionBtnText}>← Voltar</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // === TELA DE ERRO DE REDE ===
+  if (status === 'error') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.blockedContainer}>
+        <Text style={styles.blockedIcon}>📡</Text>
+        <Text style={styles.blockedTitle}>Erro de Conexão</Text>
+        <Text style={styles.blockedText}>
+          Não foi possível acessar a página da nota fiscal. Verifique sua conexão com a internet.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => { setStatus('loading'); webviewRef.current?.reload(); }}
+        >
+          <Text style={styles.actionBtnText}>🔄  Tentar Novamente</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: '#1565C0' }]}
+          onPress={() => { setStatus('paste'); setStatusMsg(''); }}
+        >
+          <Text style={styles.actionBtnText}>📋  Colar Texto da Nota</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: COLORS.textSecondary }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.actionBtnText}>← Voltar</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
+  // === TELA NORMAL: WebView + barra de status ===
   return (
     <View style={styles.container}>
       <View style={styles.statusBar}>
@@ -329,5 +490,89 @@ const styles = StyleSheet.create({
     marginTop: SPACING.md,
     fontSize: FONT_SIZE.md,
     color: COLORS.textSecondary,
+  },
+  // Blocked screen
+  blockedContainer: {
+    padding: SPACING.lg,
+    alignItems: 'center',
+  },
+  blockedIcon: {
+    fontSize: 64,
+    marginTop: SPACING.xl,
+    marginBottom: SPACING.md,
+  },
+  blockedTitle: {
+    fontSize: FONT_SIZE.xl,
+    fontWeight: '700',
+    color: COLORS.text,
+    textAlign: 'center',
+    marginBottom: SPACING.sm,
+  },
+  blockedText: {
+    fontSize: FONT_SIZE.md,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+    lineHeight: 22,
+  },
+  tipBox: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: SPACING.md,
+    width: '100%',
+    marginBottom: SPACING.lg,
+  },
+  tipTitle: {
+    fontSize: FONT_SIZE.md,
+    fontWeight: '700',
+    color: '#F57F17',
+    marginBottom: SPACING.sm,
+  },
+  tipText: {
+    fontSize: FONT_SIZE.sm,
+    color: '#5D4037',
+    marginBottom: SPACING.xs,
+    lineHeight: 20,
+  },
+  actionBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: SPACING.lg,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  actionBtnText: {
+    color: '#fff',
+    fontSize: FONT_SIZE.md,
+    fontWeight: '700',
+  },
+  // Paste screen
+  pasteContainer: {
+    padding: SPACING.lg,
+  },
+  pasteTitle: {
+    fontSize: FONT_SIZE.xl,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.xs,
+  },
+  pasteSubtitle: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.md,
+    lineHeight: 20,
+  },
+  pasteInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: SPACING.md,
+    fontSize: FONT_SIZE.sm,
+    minHeight: 200,
+    backgroundColor: '#fff',
+    marginBottom: SPACING.md,
+    textAlignVertical: 'top',
   },
 });
