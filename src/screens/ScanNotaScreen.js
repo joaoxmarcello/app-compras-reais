@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -12,40 +12,24 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS, SPACING, FONT_SIZE } from '../utils/theme';
-import { buscarProdutosNota } from '../utils/notaFiscal';
 
 export default function ScanNotaScreen({ route, navigation }) {
   const { compraId } = route.params;
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [urlManual, setUrlManual] = useState('');
   const [modoManual, setModoManual] = useState(false);
 
-  async function processarUrl(url) {
-    if (loading) return;
-    setLoading(true);
+  function abrirNota(url) {
+    if (scanned) return;
     setScanned(true);
-
-    try {
-      const resultado = await buscarProdutosNota(url);
-      navigation.replace('MatchProdutos', {
-        compraId,
-        produtosNota: resultado.produtos,
-        totalNota: resultado.totalNota,
-      });
-    } catch (error) {
-      Alert.alert('Erro', error.message, [
-        { text: 'Tentar novamente', onPress: () => { setScanned(false); setLoading(false); } },
-      ]);
-    }
+    navigation.replace('WebViewNota', { compraId, url });
   }
 
   function handleBarCodeScanned({ type, data }) {
-    if (scanned || loading) return;
-    // QR codes de NFC-e são URLs
+    if (scanned) return;
     if (data && (data.startsWith('http') || data.startsWith('HTTP'))) {
-      processarUrl(data);
+      abrirNota(data);
     } else {
       Alert.alert(
         'QR Code inválido',
@@ -65,7 +49,8 @@ export default function ScanNotaScreen({ route, navigation }) {
       Alert.alert('Atenção', 'A URL deve começar com http ou https.');
       return;
     }
-    processarUrl(url);
+    abrirNota(url);
+  }
   }
 
   if (!permission) {
@@ -118,21 +103,15 @@ export default function ScanNotaScreen({ route, navigation }) {
             keyboardType="url"
             multiline
           />
-          {loading ? (
-            <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: SPACING.lg }} />
-          ) : (
-            <>
-              <TouchableOpacity style={styles.submitBtn} onPress={handleUrlManual}>
-                <Text style={styles.submitBtnText}>Buscar Produtos</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.switchBtn}
-                onPress={() => setModoManual(false)}
-              >
-                <Text style={styles.switchBtnText}>Escanear QR Code</Text>
-              </TouchableOpacity>
-            </>
-          )}
+          <TouchableOpacity style={styles.submitBtn} onPress={handleUrlManual}>
+            <Text style={styles.submitBtnText}>Buscar Produtos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.switchBtn}
+            onPress={() => setModoManual(false)}
+          >
+            <Text style={styles.switchBtnText}>Escanear QR Code</Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     );
@@ -161,9 +140,6 @@ export default function ScanNotaScreen({ route, navigation }) {
             <Text style={styles.instructionText}>
               Aponte para o QR code da nota fiscal
             </Text>
-            {loading && (
-              <ActivityIndicator size="large" color="#fff" style={{ marginTop: SPACING.md }} />
-            )}
             <TouchableOpacity
               style={styles.switchBtn}
               onPress={() => setModoManual(true)}
@@ -212,7 +188,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 30,
     height: 30,
-    borderColor: COLORS.primaryLight,
+    borderColor: '#4CAF50',
     borderWidth: 3,
   },
   cornerTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0 },

@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -20,12 +20,13 @@
       }
     },
     "android": {
+      "package": "com.joaoxmarcello.comprasreais",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2E7D32"
       },
       "permissions": [
-        "CAMERA"
+        "android.permission.CAMERA"
       ]
     },
     "plugins": [
@@ -40,9 +41,12 @@
         {
           "photosPermission": "O app precisa acessar a galeria para selecionar fotos de produtos."
         }
-      ],
-      "expo-asset",
-      "expo-font"
-    ]
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6bf53bc6-af96-426c-a1a0-00193f4e4bc9"
+      }
+    }
   }
 }

@@ -7,6 +7,7 @@ import NovaCompraScreen from './src/screens/NovaCompraScreen';
 import DetalhesCompraScreen from './src/screens/DetalhesCompraScreen';
 import AdicionarProdutoScreen from './src/screens/AdicionarProdutoScreen';
 import ScanNotaScreen from './src/screens/ScanNotaScreen';
+import WebViewNotaScreen from './src/screens/WebViewNotaScreen';
 import MatchProdutosScreen from './src/screens/MatchProdutosScreen';
 
 const Stack = createNativeStackNavigator();
@@ -47,6 +48,11 @@ export default function App() {
             name="ScanNota"
             component={ScanNotaScreen}
             options={{ title: 'Escanear Nota Fiscal' }}
+          />
+          <Stack.Screen
+            name="WebViewNota"
+            component={WebViewNotaScreen}
+            options={{ title: 'Nota Fiscal' }}
           />
           <Stack.Screen
             name="MatchProdutos"
