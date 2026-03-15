@@ -10,12 +10,26 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS, SPACING, FONT_SIZE } from '../utils/theme';
+
+// Imports condicionais: expo-camera só funciona em nativo
+let CameraView, useCameraPermissions;
+if (Platform.OS !== 'web') {
+  const cam = require('expo-camera');
+  CameraView = cam.CameraView;
+  useCameraPermissions = cam.useCameraPermissions;
+}
+
+// WebQRScanner só carrega na web
+let WebQRScanner;
+if (Platform.OS === 'web') {
+  WebQRScanner = require('../components/WebQRScanner').default;
+}
 
 export default function ScanNotaScreen({ route, navigation }) {
   const { compraId } = route.params;
-  const [permission, requestPermission] = useCameraPermissions();
+  const isWeb = Platform.OS === 'web';
+  const [permission, requestPermission] = isWeb ? [{ granted: true }, () => {}] : useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [urlManual, setUrlManual] = useState('');
   const [modoManual, setModoManual] = useState(false);
@@ -23,7 +37,17 @@ export default function ScanNotaScreen({ route, navigation }) {
   function abrirNota(url) {
     if (scanned) return;
     setScanned(true);
-    navigation.replace('WebViewNota', { compraId, url });
+    if (isWeb) {
+      // Na web, WebView não funciona — abrir em nova aba
+      window.open(url, '_blank');
+      Alert.alert(
+        'Nota Aberta',
+        'A nota fiscal foi aberta em outra aba. Copie o texto dos produtos e cole aqui.',
+        [{ text: 'OK', onPress: () => setScanned(false) }]
+      );
+    } else {
+      navigation.replace('WebViewNota', { compraId, url });
+    }
   }
 
   function handleBarCodeScanned({ type, data }) {
@@ -116,6 +140,25 @@ export default function ScanNotaScreen({ route, navigation }) {
     );
   }
 
+  // === WEB: usar WebQRScanner ===
+  if (isWeb) {
+    return (
+      <View style={styles.container}>
+        <WebQRScanner
+          onScan={(data) => {
+            if (data && (data.startsWith('http') || data.startsWith('HTTP'))) {
+              abrirNota(data);
+            } else {
+              alert('QR Code inválido. Procure o QR code na parte inferior da nota fiscal.');
+            }
+          }}
+          onSwitchManual={() => setModoManual(true)}
+        />
+      </View>
+    );
+  }
+
+  // === NATIVO: usar expo-camera ===
   return (
     <View style={styles.container}>
       <CameraView
